@@ -1,13 +1,13 @@
 #ifndef LVBA_SYSTEM_H
 #define LVBA_SYSTEM_H
 
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <thread>
 #include <pcl/common/common.h>
 #include <GL/glew.h>   // 先
 #include <GL/gl.h>     // 后
 #include <pcl/filters/voxel_grid.h>
-#include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 #include <pcl_conversions/pcl_conversions.h>
 #include "dataset_io.h"
 #include "sophus/se3.h"
@@ -25,7 +25,7 @@ namespace lvba {
 
 class LvbaSystem {
 public:
-    LvbaSystem(ros::NodeHandle& nh);
+    explicit LvbaSystem(const rclcpp::Node::SharedPtr& node);
     ~LvbaSystem() = default;
 
     void runFullPipeline();
@@ -80,18 +80,18 @@ public:
 
     void pubRGBCloud();
 
-    ros::Publisher pub_path_, pub_test_, pub_show_, pub_cute_, pub_cloud_before_, pub_cloud_after_, pub_cloud_map_;
+    using PointCloudPublisher = rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr;
+
+    PointCloudPublisher pub_path_, pub_test_, pub_show_, pub_cute_, pub_cloud_before_, pub_cloud_after_, pub_cloud_map_;
     void data_show(vector<IMUST> x_buf, vector<pcl::PointCloud<PointType>::Ptr> &pl_fulls);
-    template <typename T> void pub_pl_func(T &pl, ros::Publisher &pub);
+    template <typename T> void pub_pl_func(T &pl, const PointCloudPublisher &pub);
     
     VOX_HESS *voxhess;
     BALM2 *opt_lsv;
-
-
-    ros::NodeHandle& nh_;
+    rclcpp::Node::SharedPtr node_;
     DatasetIOPtr dataset_io_;
-    ros::Publisher cloud_pub_after_;
-    ros::Publisher cloud_pub_before_;
+    PointCloudPublisher cloud_pub_after_;
+    PointCloudPublisher cloud_pub_before_;
 
     std::unordered_map<VOXEL_LOC, OCTO_TREE_ROOT*> surf_map;
 

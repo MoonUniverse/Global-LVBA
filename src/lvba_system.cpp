@@ -2,27 +2,30 @@
 
 namespace lvba {
     
-LvbaSystem::LvbaSystem(ros::NodeHandle& nh) : nh_(nh)                                
+LvbaSystem::LvbaSystem(const rclcpp::Node::SharedPtr& node) : node_(node)
 {
-    dataset_io_.reset(new DatasetIO(nh_));
+    dataset_io_.reset(new DatasetIO(node_));
 
-    cloud_pub_after_ = nh_.advertise<sensor_msgs::PointCloud2>("/lvba/cloud_after", 1, true);
-    cloud_pub_before_ = nh_.advertise<sensor_msgs::PointCloud2>("/lvba/cloud_before", 1, true);
-    pub_test_ = nh_.advertise<sensor_msgs::PointCloud2>("/map_test", 100);
-    pub_path_ = nh_.advertise<sensor_msgs::PointCloud2>("/map_path", 100);
-    pub_show_ = nh_.advertise<sensor_msgs::PointCloud2>("/map_show", 100);
-    pub_cute_ = nh_.advertise<sensor_msgs::PointCloud2>("/map_cute", 100);
+    const auto latched_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
+    const auto default_qos = rclcpp::QoS(rclcpp::KeepLast(100));
 
-    pub_cloud_before_ = nh_.advertise<sensor_msgs::PointCloud2>("viz/cloud_before", 1, true);
-    pub_cloud_after_  = nh_.advertise<sensor_msgs::PointCloud2>("viz/cloud_after", 1, true);
+    cloud_pub_after_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("/lvba/cloud_after", latched_qos);
+    cloud_pub_before_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("/lvba/cloud_before", latched_qos);
+    pub_test_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("/map_test", default_qos);
+    pub_path_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("/map_path", default_qos);
+    pub_show_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("/map_show", default_qos);
+    pub_cute_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("/map_cute", default_qos);
 
-    nh_.param<bool>("data_config/enable_lidar_ba", enable_lidar_ba_, true);
-    nh_.param<bool>("data_config/enable_visual_ba", enable_visual_ba_, true);
-    nh_.param<double>("track_fusion/min_view_angle", min_view_angle_deg_, 8.0);
-    nh_.param<double>("track_fusion/reproj_mean_thr", reproj_mean_thr_px_, 3.0);
+    pub_cloud_before_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("viz/cloud_before", latched_qos);
+    pub_cloud_after_  = node_->create_publisher<sensor_msgs::msg::PointCloud2>("viz/cloud_after", latched_qos);
 
-    nh_.param<bool>("colmap_output/enable", colmap_output_enable_, true);
-    nh_.param<double>("colmap_output/filter_size_points3D", filter_size_points3D_, 0.01);
+    enable_lidar_ba_ = node_->declare_parameter<bool>("data_config.enable_lidar_ba", true);
+    enable_visual_ba_ = node_->declare_parameter<bool>("data_config.enable_visual_ba", true);
+    min_view_angle_deg_ = node_->declare_parameter<double>("track_fusion.min_view_angle", 8.0);
+    reproj_mean_thr_px_ = node_->declare_parameter<double>("track_fusion.reproj_mean_thr", 3.0);
+
+    colmap_output_enable_ = node_->declare_parameter<bool>("colmap_output.enable", true);
+    filter_size_points3D_ = node_->declare_parameter<double>("colmap_output.filter_size_points3D", 0.01);
 }
 
 void LvbaSystem::runFullPipeline() 
@@ -30,7 +33,6 @@ void LvbaSystem::runFullPipeline()
     initFromDatasetIO();
     if(enable_lidar_ba_) runLidarBA();
     if(enable_visual_ba_) runVisualBAWithLidarAssist();
-    ros::spin();
 }
 
 void LvbaSystem::runVisualBAWithLidarAssist()
@@ -46,14 +48,14 @@ void LvbaSystem::runVisualBAWithLidarAssist()
 }
 
 template <typename T>
-void LvbaSystem::pub_pl_func(T &pl, ros::Publisher &pub)
+void LvbaSystem::pub_pl_func(T &pl, const PointCloudPublisher &pub)
 {
   pl.height = 1; pl.width = pl.size();
-  sensor_msgs::PointCloud2 output;
+    sensor_msgs::msg::PointCloud2 output;
   pcl::toROSMsg(pl, output);
   output.header.frame_id = "map";
-  output.header.stamp = ros::Time::now();
-  pub.publish(output);
+    output.header.stamp = node_->now();
+    pub->publish(output);
 }
 
 void LvbaSystem::data_show(vector<IMUST> x_buf, vector<pcl::PointCloud<PointType>::Ptr> &pl_fulls)
@@ -144,7 +146,7 @@ void LvbaSystem::runWindowBA(const std::vector<IMUST>& x_buf_full,
 
         std::unique_ptr<BALM2> opt_lsv(new BALM2(curr_win));
         std::unique_ptr<VOX_HESS> voxhess(new VOX_HESS(curr_win));
-        for (auto iter = surf_map.begin(); iter != surf_map.end() && nh_.ok(); ++iter) {
+        for (auto iter = surf_map.begin(); iter != surf_map.end() && rclcpp::ok(); ++iter) {
             iter->second->recut(x_win);
             iter->second->tras_opt(*voxhess);
         }
@@ -207,7 +209,7 @@ void LvbaSystem::runLidarBA()
     std::vector<pcl::PointCloud<PointType>::Ptr> pl_fulls_full = dataset_io_->pl_fulls_;
     const int total_size = static_cast<int>(x_buf_full.size());
     if (total_size == 0) {
-        ROS_WARN("No poses in buffer, skip runLidarBA.");
+        RCLCPP_WARN(node_->get_logger(), "No poses in buffer, skip runLidarBA.");
         return;
     }
 
@@ -263,7 +265,7 @@ void LvbaSystem::runLidarBA()
         std::unique_ptr<BALM2> opt_lsv(new BALM2(win_size));
         std::unique_ptr<VOX_HESS> voxhess(new VOX_HESS(win_size));
 
-        for (auto iter = surf_map.begin(); iter != surf_map.end() && nh_.ok(); ++iter) {
+        for (auto iter = surf_map.begin(); iter != surf_map.end() && rclcpp::ok(); ++iter) {
             iter->second->recut(anchor_poses);
             iter->second->tras_opt(*voxhess);
             iter->second->tras_display(pl_send, anchor_poses, 0);
@@ -1108,7 +1110,7 @@ void LvbaSystem::buildGridMapFromOptimized() {
 
     const size_t N = std::min(x_buf_full.size(), pl_fulls_full.size());
     if (N == 0) {
-        ROS_WARN("buildGridMapFromOptimized: empty inputs, skip.");
+        RCLCPP_WARN(node_->get_logger(), "buildGridMapFromOptimized: empty inputs, skip.");
         return;
     }
 
@@ -1414,7 +1416,7 @@ void LvbaSystem::optimizeCameraPoses()
     options.minimizer_progress_to_stdout = true;
 
     for (int k = 0; k < M; ++k) {
-        problem.AddParameterBlock(qs[k].data(), 4, new ceres::EigenQuaternionManifold());
+        problem.AddParameterBlock(qs[k].data(), 4, new ceres::QuaternionManifold());
         problem.AddParameterBlock(ts[k].data(), 3);
     }
     problem.SetParameterBlockConstant(qs[0].data());
@@ -1712,22 +1714,22 @@ void LvbaSystem::showTracksComparePCL()
     std::cout << "[Visualizer] Before: " << track_viz_before->size() << " | After: " << track_viz_after->size() << std::endl;
 
     std::string target_frame_id = "map"; 
-    ros::Time current_time = ros::Time::now();
+    auto current_time = node_->now();
     
     if (track_viz_before->size() > 0) {
-        sensor_msgs::PointCloud2 msg_before;
+        sensor_msgs::msg::PointCloud2 msg_before;
         pcl::toROSMsg(*track_viz_before, msg_before);
         msg_before.header.frame_id = target_frame_id;
         msg_before.header.stamp = current_time;
-        pub_cloud_before_.publish(msg_before);
+        pub_cloud_before_->publish(msg_before);
     }
 
     if (track_viz_after->size() > 0) {
-        sensor_msgs::PointCloud2 msg_after;
+        sensor_msgs::msg::PointCloud2 msg_after;
         pcl::toROSMsg(*track_viz_after, msg_after);
         msg_after.header.frame_id = target_frame_id;
         msg_after.header.stamp = current_time;
-        pub_cloud_after_.publish(msg_after);
+        pub_cloud_after_->publish(msg_after);
     }
 }
 
@@ -2029,21 +2031,21 @@ void LvbaSystem::pubRGBCloud() {
 
     showTracksComparePCL();
 
-    sensor_msgs::PointCloud2 output;
+    sensor_msgs::msg::PointCloud2 output;
     down_sampling_voxel(*pub_cloud_, 0.01);
     pcl::toROSMsg(*pub_cloud_, output);
     output.header.frame_id = "map";
-    output.header.stamp = ros::Time::now();
+    output.header.stamp = node_->now();
 
-    cloud_pub_after_.publish(output);
+    cloud_pub_after_->publish(output);
 
-    sensor_msgs::PointCloud2 output_b;
+    sensor_msgs::msg::PointCloud2 output_b;
     down_sampling_voxel(*pub_cloud_b_, 0.01);
     pcl::toROSMsg(*pub_cloud_b_, output_b);
     output_b.header.frame_id = "map"; 
-    output_b.header.stamp = ros::Time::now();
+    output_b.header.stamp = node_->now();
 
-    cloud_pub_before_.publish(output_b);
+    cloud_pub_before_->publish(output_b);
 }
 
 

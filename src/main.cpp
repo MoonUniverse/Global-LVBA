@@ -1,11 +1,13 @@
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include "lvba_system.h"
 
 int main(int argc, char** argv) 
 {
-    ros::init(argc, argv, "lv_ba");
-    ros::NodeHandle nh;
-    lvba::LvbaSystem lvba_system(nh);
+    rclcpp::init(argc, argv);
+    auto node = std::make_shared<rclcpp::Node>("lv_ba");
+    lvba::LvbaSystem lvba_system(node);
     lvba_system.runFullPipeline();
+    rclcpp::spin(node);
+    rclcpp::shutdown();
     return 0;
 }

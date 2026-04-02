@@ -293,12 +293,6 @@ public:
 
   double ref;
 
-#ifdef ENABLE_RVIZ
-  ros::NodeHandle nh;
-  ros::Publisher pub_residual = nh.advertise<sensor_msgs::PointCloud2>("/residual", 1000);
-  ros::Publisher pub_direct = nh.advertise<visualization_msgs::MarkerArray>("/direct", 1000);
-#endif
-
   OCTO_TREE_NODE(int _win_size = WIN_SIZE, float _eigen_thr = 1.0 / 10) : win_size(_win_size), eigen_thr(_eigen_thr)
   {
     ref = 255.0*rand()/(RAND_MAX + 1.0f);
@@ -513,41 +507,6 @@ public:
               }
           }
 
-#ifdef ENABLE_RVIZ
-          sensor_msgs::PointCloud2 dbg_msg;
-          pcl::toROSMsg(color_cloud, dbg_msg);
-          dbg_msg.header.frame_id = "camera_init";
-          pub_residual.publish(dbg_msg);
-
-          visualization_msgs::Marker marker;
-          visualization_msgs::MarkerArray marker_array;
-          marker.header.frame_id = "camera_init";
-          marker.header.stamp = ros::Time::now();
-          marker.ns = "basic_shapes";
-          marker.id = BINGO_CNT;
-          BINGO_CNT++;
-          marker.action = visualization_msgs::Marker::ADD;
-          marker.type = visualization_msgs::Marker::ARROW;
-          marker.color.a = 1;
-          marker.color.r = layer == 0 ? 1 : 0;
-          marker.color.g = layer == 1 ? 1 : 0;
-          marker.color.b = layer == 2 ? 1 : 0;
-          marker.scale.x = 0.01;
-          marker.scale.y = 0.05;
-          marker.scale.z = 0.05;
-          marker.lifetime = ros::Duration();
-          geometry_msgs::Point apoint;
-          apoint.x = center(0);
-          apoint.y = center(1);
-          apoint.z = center(2);
-          marker.points.push_back(apoint);
-          apoint.x += 0.2 * direct(0);
-          apoint.y += 0.2 * direct(1);
-          apoint.z += 0.2 * direct(2);
-          marker.points.push_back(apoint);
-          marker_array.markers.push_back(marker);
-          pub_direct.publish(marker_array);
-#endif
       }
       else
       {
@@ -567,7 +526,7 @@ public:
     OCTO_TREE_ROOT(int _winsize, float _eigen_thr) : OCTO_TREE_NODE(_winsize, _eigen_thr) {}
 };
 
-bool iter_stop(Eigen::VectorXd &dx, double thre = 1e-7, int win_size = 0)
+inline bool iter_stop(Eigen::VectorXd &dx, double thre = 1e-7, int win_size = 0)
 {
   // int win_size = dx.rows() / 6;
   if(win_size == 0)
@@ -688,10 +647,8 @@ public:
             if(is_calc_hess)
                 residual1 = divide_thread(x_stats, voxhess, x_ab, Hess, JacT);
 
-            // double tm = ros::Time::now().toSec();
             D.diagonal() = Hess.diagonal();
             HessuD = Hess + u * D;
-            // double t1 = ros::Time::now().toSec();
             Eigen::SparseMatrix<double> A1_sparse(jac_leng, jac_leng);
             std::vector<Eigen::Triplet<double>> tripletlist;
             for(int a = 0; a < jac_leng; a++)
@@ -710,9 +667,7 @@ public:
             dxi = Solver_sparse.solve(-JacT);
             // temp_mem = check_mem();
             // if(temp_mem > max_mem) max_mem = temp_mem;
-            // solvtime += ros::Time::now().toSec() - tm;
             // new_dxi = Solver_sparse.solve(-JacT);
-            // printf("new solve time cost %f\n",ros::Time::now().toSec() - t1);
             // relative_err = ((Hess + u*D)*dxi + JacT).norm()/JacT.norm();
             // absolute_err = ((Hess + u*D)*dxi + JacT).norm();
             // std::cout<<"relative error "<<relative_err<<std::endl;
@@ -796,7 +751,7 @@ public:
 };
 
 
-void cut_voxel(unordered_map<VOXEL_LOC, OCTO_TREE_ROOT*> &feat_map, pcl::PointCloud<PointType> &pl_feat,
+inline void cut_voxel(unordered_map<VOXEL_LOC, OCTO_TREE_ROOT*> &feat_map, pcl::PointCloud<PointType> &pl_feat,
                const IMUST &x_key, int fnum, int win_size,
                double voxel_size = 1.0, float eigen_ratio = 0.1)
 {

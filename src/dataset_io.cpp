@@ -2,9 +2,9 @@
 
 namespace lvba {
 
-DatasetIO::DatasetIO(ros::NodeHandle& nh) 
+DatasetIO::DatasetIO(const rclcpp::Node::SharedPtr& node)
 {    
-    readParameters(nh);
+  readParameters(node);
 
     if (loadDataset()) {
         std::cout << "[DatasetIO] Data loaded successfully" << std::endl;
@@ -25,36 +25,41 @@ void DatasetIO::undistortImage(const cv::Mat& raw, cv::Mat& rectified)
     cv::remap(raw, rectified, undist_map1_, undist_map2_, cv::INTER_LINEAR);
 }
 
-void DatasetIO::readParameters(ros::NodeHandle &nh)
+void DatasetIO::readParameters(const rclcpp::Node::SharedPtr& node)
 {
-    nh.param<std::string>("data_config/data_path", dataset_path_, "dataset/cbd_new/");
-    nh.param<std::string>("data_config/colmap_db_path", colmap_db_path_, "");
-    nh.param<int>("data_config/image_sample_step", image_stride_, 10);
-    nh.param<int>("cam_model/cam_width", width_, 1280);
-    nh.param<int>("cam_model/cam_height", height_, 1024);
-    nh.param<double>("cam_model/scale", resize_scale_, 0.5);
-    nh.param<double>("cam_model/cam_fx", fx_, 1293.56944);
-    nh.param<double>("cam_model/cam_fy", fy_, 1293.3155);
-    nh.param<double>("cam_model/cam_cx", cx_, 626.91359);
-    nh.param<double>("cam_model/cam_cy", cy_, 522.799224);
-    nh.param<double>("cam_model/cam_d0", k1_, -0.076160);
-    nh.param<double>("cam_model/cam_d1", k2_, 0.123001);
-    nh.param<double>("cam_model/cam_d2", p1_, -0.00113);
-    nh.param<double>("cam_model/cam_d3", p2_, 0.000251);
-    nh.param<std::vector<double>>("extrin_calib/extrinsic_T", extrinT_, std::vector<double>());
-    nh.param<std::vector<double>>("extrin_calib/extrinsic_R", extrinR_, std::vector<double>());
-    nh.param<std::vector<double>>("extrin_calib/Pcl", cameraextrinT_, std::vector<double>());
-    nh.param<std::vector<double>>("extrin_calib/Rcl", cameraextrinR_, std::vector<double>());
+  dataset_path_ = node->declare_parameter<std::string>("data_config.data_path", "dataset/cbd_new/");
+  colmap_db_path_ = node->declare_parameter<std::string>("data_config.colmap_db_path", "");
+  image_stride_ = node->declare_parameter<int>("data_config.image_sample_step", 10);
+  width_ = node->declare_parameter<int>("cam_model.cam_width", 1280);
+  height_ = node->declare_parameter<int>("cam_model.cam_height", 1024);
+  resize_scale_ = node->declare_parameter<double>("cam_model.scale", 0.5);
+  fx_ = node->declare_parameter<double>("cam_model.cam_fx", 1293.56944);
+  fy_ = node->declare_parameter<double>("cam_model.cam_fy", 1293.3155);
+  cx_ = node->declare_parameter<double>("cam_model.cam_cx", 626.91359);
+  cy_ = node->declare_parameter<double>("cam_model.cam_cy", 522.799224);
+  k1_ = node->declare_parameter<double>("cam_model.cam_d0", -0.076160);
+  k2_ = node->declare_parameter<double>("cam_model.cam_d1", 0.123001);
+  p1_ = node->declare_parameter<double>("cam_model.cam_d2", -0.00113);
+  p2_ = node->declare_parameter<double>("cam_model.cam_d3", 0.000251);
+  extrinT_ = node->declare_parameter<std::vector<double>>("extrin_calib.extrinsic_T", std::vector<double>());
+  extrinR_ = node->declare_parameter<std::vector<double>>("extrin_calib.extrinsic_R", std::vector<double>());
+  cameraextrinT_ = node->declare_parameter<std::vector<double>>("extrin_calib.Pcl", std::vector<double>());
+  cameraextrinR_ = node->declare_parameter<std::vector<double>>("extrin_calib.Rcl", std::vector<double>());
 
-    nh.param<bool>("window_ba/enable", window_ba_enable_, true);
-    nh.param<int>("window_ba/size", window_ba_size_, 10);
-    nh.param<double>("window_ba/anchor_leaf_size", anchor_leaf_size_, 0.1);
-    nh.param<bool>("window_ba/use_window_ba_rel", use_window_ba_rel_, false);
-    nh.param<double>("BALM_stage1/root_voxel_size", stage1_root_voxel_size_, 0.5);
-    nh.param<bool>("BALM_stage1/enable", stage1_enable_, true);
-    nh.param<double>("BALM_stage2/root_voxel_size", stage2_root_voxel_size_, stage1_root_voxel_size_);
-    nh.param<std::vector<float>>("BALM_stage1/eigen_ratio_array", stage1_eigen_ratio_array_, stage1_eigen_ratio_array_);
-    nh.param<std::vector<float>>("BALM_stage2/eigen_ratio_array", stage2_eigen_ratio_array_, stage2_eigen_ratio_array_);
+  window_ba_enable_ = node->declare_parameter<bool>("window_ba.enable", true);
+  window_ba_size_ = node->declare_parameter<int>("window_ba.size", 10);
+  anchor_leaf_size_ = node->declare_parameter<double>("window_ba.anchor_leaf_size", 0.1);
+  use_window_ba_rel_ = node->declare_parameter<bool>("window_ba.use_window_ba_rel", false);
+  stage1_root_voxel_size_ = node->declare_parameter<double>("BALM_stage1.root_voxel_size", 0.5);
+  stage1_enable_ = node->declare_parameter<bool>("BALM_stage1.enable", true);
+  stage2_root_voxel_size_ = node->declare_parameter<double>("BALM_stage2.root_voxel_size", stage1_root_voxel_size_);
+
+  const auto stage1_eigen_ratio = node->declare_parameter<std::vector<double>>(
+    "BALM_stage1.eigen_ratio_array", {0.3, 0.1, 0.06, 0.03});
+  const auto stage2_eigen_ratio = node->declare_parameter<std::vector<double>>(
+    "BALM_stage2.eigen_ratio_array", {0.08, 0.08, 0.08, 0.08});
+  stage1_eigen_ratio_array_.assign(stage1_eigen_ratio.begin(), stage1_eigen_ratio.end());
+  stage2_eigen_ratio_array_.assign(stage2_eigen_ratio.begin(), stage2_eigen_ratio.end());
 
     width_  = static_cast<int>(std::lround(width_  * resize_scale_));
     height_ = static_cast<int>(std::lround(height_ * resize_scale_));

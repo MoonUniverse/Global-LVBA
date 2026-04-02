@@ -2,7 +2,7 @@
 #define DATASET_IO_H
 
 #include <string>
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <regex>
 #include <filesystem>
 #include <pcl/io/pcd_io.h>
@@ -20,10 +20,10 @@ namespace lvba {
 class DatasetIO {
 public: 
     
-    DatasetIO(ros::NodeHandle& nh);
+    explicit DatasetIO(const rclcpp::Node::SharedPtr& node);
     ~DatasetIO() = default;
 
-    void readParameters(ros::NodeHandle &nh);
+    void readParameters(const rclcpp::Node::SharedPtr& node);
     bool loadDataset();
     bool handleImages();
     bool handleBodyPoints();
