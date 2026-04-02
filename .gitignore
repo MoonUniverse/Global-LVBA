@@ -1,3 +1,6 @@
 dataset/*
 LVBA_data/*
 build/*
+.vscode/
+install/
+log/
