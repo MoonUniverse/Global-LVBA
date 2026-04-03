@@ -22,7 +22,7 @@ lv_ba:
       Pcl: [0.0194384, 0.104689, -0.0251952]
 
     data_config:
-      data_path: dataset/CBD_Building_01/
+      data_path: /home/issuser/Downloads/CBD_Building_01-20260402T085655Z-3-001/CBD_Building_01/
       colmap_db_path: Colmap/colmap_sub5.db
       image_sample_step: 5
       enable_lidar_ba: false

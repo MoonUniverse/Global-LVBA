@@ -27,8 +27,12 @@ void DatasetIO::undistortImage(const cv::Mat& raw, cv::Mat& rectified)
 
 void DatasetIO::readParameters(const rclcpp::Node::SharedPtr& node)
 {
+  namespace fs = std::filesystem;
+
   dataset_path_ = node->declare_parameter<std::string>("data_config.data_path", "dataset/cbd_new/");
   colmap_db_path_ = node->declare_parameter<std::string>("data_config.colmap_db_path", "");
+  const auto runtime_config_path =
+    node->declare_parameter<std::string>("runtime_config_path", "");
   image_stride_ = node->declare_parameter<int>("data_config.image_sample_step", 10);
   width_ = node->declare_parameter<int>("cam_model.cam_width", 1280);
   height_ = node->declare_parameter<int>("cam_model.cam_height", 1024);
@@ -66,8 +70,32 @@ void DatasetIO::readParameters(const rclcpp::Node::SharedPtr& node)
     fx_ *= resize_scale_; fy_ *= resize_scale_;
     cx_ *= resize_scale_; cy_ *= resize_scale_;
 
-    dataset_path_ = std::string(ROOT_DIR) + dataset_path_;
-    colmap_db_path_ = dataset_path_ + colmap_db_path_;
+    fs::path dataset_path(dataset_path_);
+    if (dataset_path.is_relative()) {
+      fs::path package_root(ROOT_DIR);
+      if (!runtime_config_path.empty()) {
+        fs::path config_path(runtime_config_path);
+        if (config_path.has_parent_path()) {
+          package_root = config_path.parent_path();
+          if (package_root.filename() == "config") {
+            package_root = package_root.parent_path();
+          }
+        }
+      }
+
+      dataset_path = package_root / dataset_path;
+    }
+
+    dataset_path_ = dataset_path.lexically_normal().string();
+    if (!dataset_path_.empty() && dataset_path_.back() != '/') {
+      dataset_path_ += '/';
+    }
+
+    fs::path colmap_db_path(colmap_db_path_);
+    if (colmap_db_path.is_relative()) {
+      colmap_db_path = fs::path(dataset_path_) / colmap_db_path;
+    }
+    colmap_db_path_ = colmap_db_path.lexically_normal().string();
 }
 
 bool DatasetIO::loadDataset()
