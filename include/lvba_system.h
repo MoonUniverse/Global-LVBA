@@ -15,6 +15,7 @@
 #include <sqlite3.h>
 #include <sstream>
 #include <utility>
+#include <unordered_map>
 
 #include "BALM/tools.hpp"
 #include "BALM/bavoxel.hpp"
@@ -101,11 +102,12 @@ public:
         double* u, double* v, double* Zc) const;
 
     std::vector<double> images_ids_;
-    std::vector<Sophus::SE3> poses_before_;
-    std::vector<Sophus::SE3> poses_;  // 当前使用的相机位姿（同步/优化后）
+    std::vector<Sophus::SE3d> poses_before_;
+    std::vector<Sophus::SE3d> poses_;  // 当前使用的相机位姿（同步/优化后）
 
     std::vector<std::pair<double, double>> image_pairs_;
-    std::vector<std::pair<Sophus::SE3, Sophus::SE3>> pose_pairs_;
+    std::unordered_map<uint64_t, size_t> match_idx_map_; // (i<<32|j) -> index in all_matches_
+    std::vector<std::pair<Sophus::SE3d, Sophus::SE3d>> pose_pairs_;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr pub_cloud_, pub_cloud_b_;
 
     std::vector<std::vector<sift::Keypoint>> all_keypoints_; // 存储所有图像的特征点

@@ -395,9 +395,9 @@ static inline bool parseTimestampFromName(const std::string& fname, double& ts_o
 }
 
 // template <typename PointT>
-inline void transformPointBodyToWorld(pcl::PointCloud<PointType>::Ptr cloud, const Sophus::SE3& T_wb)
+inline void transformPointBodyToWorld(pcl::PointCloud<PointType>::Ptr cloud, const Sophus::SE3d& T_wb)
 {
-  const Eigen::Matrix3d R_wb = T_wb.rotation_matrix();
+  const Eigen::Matrix3d R_wb = T_wb.rotationMatrix();
   const Eigen::Vector3d t_wb = T_wb.translation();
 
   for (auto& pt : cloud->points) {

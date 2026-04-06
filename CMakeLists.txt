@@ -42,7 +42,7 @@ endif()
 find_package(Ceres REQUIRED)
 find_package(SQLite3 REQUIRED)
 
-set(Sophus_LIBRARIES libSophus.so)
+set(Sophus_LIBRARIES "")  # Sophus is header-only
 
 include_directories(
   include

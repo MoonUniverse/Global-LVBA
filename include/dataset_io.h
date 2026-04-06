@@ -32,7 +32,7 @@ public:
     // bool handlePoints();
     // bool handlePoses();
     // bool handleVoxelId();
-    bool loadPosesTUM(const std::string& file, size_t STRIDE, std::vector<Sophus::SE3>& poses_out);
+    bool loadPosesTUM(const std::string& file, size_t STRIDE, std::vector<Sophus::SE3d>& poses_out);
     // std::string getImagePath(double image_id);
     // std::string getPcdPath(double pcd_id);
 
@@ -53,10 +53,10 @@ public:
 
     std::vector<double> images_ids_;
     // pcl::PointCloud<pcl::PointXYZINormal>::Ptr cloud_;
-    // std::vector<Sophus::SE3> poses_;
+    // std::vector<Sophus::SE3d> poses_;
 
-    std::vector<Sophus::SE3> lidar_poses_;
-    std::vector<Sophus::SE3> image_poses_;
+    std::vector<Sophus::SE3d> lidar_poses_;
+    std::vector<Sophus::SE3d> image_poses_;
     
     std::vector<std::vector<VOXEL_LOC>> all_voxel_ids_;
     std::string dataset_path_;

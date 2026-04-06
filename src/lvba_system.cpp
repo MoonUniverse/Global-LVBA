@@ -37,14 +37,34 @@ void LvbaSystem::runFullPipeline()
 
 void LvbaSystem::runVisualBAWithLidarAssist()
 {
+    std::cout << "[Visual BA] Step 1: buildGridMapFromOptimized" << std::endl; std::cout.flush();
     buildGridMapFromOptimized();
+    // Free raw point clouds — no longer needed; grid_map_ has all world-frame points
+    {
+        std::vector<pcl::PointCloud<PointType>::Ptr>().swap(dataset_io_->pl_fulls_);
+        std::cout << "[Visual BA] Freed pl_fulls_ to reclaim memory" << std::endl; std::cout.flush();
+    }
+    std::cout << "[Visual BA] Step 2: updateCameraPosesFromLidar" << std::endl; std::cout.flush();
     updateCameraPosesFromLidar();
+    std::cout << "[Visual BA] Step 3: generateDepthWithVoxel" << std::endl; std::cout.flush();
     generateDepthWithVoxel();
+    // Free grid_map_ — no longer needed after depth maps are generated
+    {
+        decltype(grid_map_)().swap(grid_map_);
+        decltype(all_voxel_ids_)().swap(all_voxel_ids_);
+        std::cout << "[Visual BA] Freed grid_map_ + all_voxel_ids_ to reclaim memory" << std::endl; std::cout.flush();
+    }
+    std::cout << "[Visual BA] Step 4: extractAndMatchFeaturesGPU" << std::endl; std::cout.flush();
     extractAndMatchFeaturesGPU();
+    std::cout << "[Visual BA] Step 5: BuildTracksAndFuse3D" << std::endl; std::cout.flush();
     BuildTracksAndFuse3D();
+    std::cout << "[Visual BA] Step 6: optimizeCameraPoses" << std::endl; std::cout.flush();
     optimizeCameraPoses();
+    std::cout << "[Visual BA] Step 7: visualizeProj" << std::endl; std::cout.flush();
     visualizeProj();
+    std::cout << "[Visual BA] Step 8: pubRGBCloud" << std::endl; std::cout.flush();
     pubRGBCloud();
+    std::cout << "[Visual BA] Done!" << std::endl; std::cout.flush();
 }
 
 template <typename T>
@@ -213,7 +233,7 @@ void LvbaSystem::runLidarBA()
         return;
     }
 
-    data_show(x_buf_full, pl_fulls_full);
+    // data_show(x_buf_full, pl_fulls_full);  // skipped: merges all 7000 clouds, OOM
     printf("If no problem, input '1' to continue or '0' to exit...\n");
     int cont_flag = 1;
     std::cin >> cont_flag;
@@ -300,7 +320,7 @@ void LvbaSystem::runLidarBA()
     dataset_io_->x_buf_ = optimized_x_buf_;
     
     // data_show(anchor_poses, anchor_clouds);
-    data_show(dataset_io_->x_buf_, dataset_io_->pl_fulls_);
+    // data_show(dataset_io_->x_buf_, dataset_io_->pl_fulls_);  // skipped: merges all 7000 clouds, OOM
 }
 
 void LvbaSystem::updateCameraPosesFromLidar()
@@ -330,11 +350,11 @@ void LvbaSystem::updateCameraPosesFromLidar()
             continue;
         }
 
-        Sophus::SE3 T_opt(lidar_opt[idx].R, lidar_opt[idx].p);
-        Sophus::SE3 T_orig(lidar_orig[idx].R, lidar_orig[idx].p);
-        Sophus::SE3 T_delta = T_opt * T_orig.inverse();
+        Sophus::SE3d T_opt(lidar_opt[idx].R, lidar_opt[idx].p);
+        Sophus::SE3d T_orig(lidar_orig[idx].R, lidar_orig[idx].p);
+        Sophus::SE3d T_delta = T_opt * T_orig.inverse();
 
-        Sophus::SE3 T_cam_new = T_delta * cam_orig[i];
+        Sophus::SE3d T_cam_new = T_delta * cam_orig[i];
         poses_.push_back(T_cam_new);
     }
 }
@@ -353,8 +373,13 @@ void LvbaSystem::initFromDatasetIO() {
         return;
     }
 
+    // Sequential-window matching: only pair frames within a sliding window
+    // (avoids O(N^2) exhaustive matching; nearby frames share visual overlap)
+    const int match_window = 20;
+    match_idx_map_.clear();
     for (size_t i = 0; i < images_ids_.size(); ++i) {
-        for (size_t j = i + 1; j < images_ids_.size(); ++j) {
+        for (size_t j = i + 1; j < images_ids_.size() && (int)(j - i) <= match_window; ++j) {
+            match_idx_map_[((uint64_t)i << 32) | (uint64_t)j] = image_pairs_.size();
             image_pairs_.push_back(std::make_pair(images_ids_[i], images_ids_[j]));
         }
     }
@@ -714,6 +739,10 @@ void LvbaSystem::extractAndMatchFeaturesGPU()
         int id2 = ts2idx[ts2];
         cv::Mat img1 = cv::imread(getImagePath(ts1), cv::IMREAD_COLOR);
         cv::Mat img2 = cv::imread(getImagePath(ts2), cv::IMREAD_COLOR);
+        if (img1.cols != image_width_ || img1.rows != image_height_)
+            cv::resize(img1, img1, cv::Size(image_width_, image_height_), 0, 0, cv::INTER_LINEAR);
+        if (img2.cols != image_width_ || img2.rows != image_height_)
+            cv::resize(img2, img2, cv::Size(image_width_, image_height_), 0, 0, cv::INTER_LINEAR);
         drawAndSaveMatchesGPU(dataset_path_ + "result/", id1, id2, img1, img2, c1.kpt, c2.kpt, matches);
         pair_count++;
         // if (pair_count == 20) {
@@ -746,8 +775,8 @@ void LvbaSystem::generateDepthWithVoxel()
     std::cout << "[generateDepthWithVoxel] Generating depths for " << N << " images ...\n";
     for (size_t id = 0; id < N; ++id) 
     {
-        const Sophus::SE3& T_W_I_opt = poses_[id];
-        const Eigen::Matrix3d Rwi_opt = T_W_I_opt.rotation_matrix();
+        const Sophus::SE3d& T_W_I_opt = poses_[id];
+        const Eigen::Matrix3d Rwi_opt = T_W_I_opt.rotationMatrix();
         const Eigen::Vector3d Pwi_opt = T_W_I_opt.translation();
 
         Rcw_ = Rci_ * Rwi_opt.transpose();
@@ -755,8 +784,8 @@ void LvbaSystem::generateDepthWithVoxel()
         Rcw_all_optimized_.push_back(Rcw_);
         tcw_all_optimized_.push_back(tcw_);
 
-        const Sophus::SE3& T_W_I_orig = poses_before_[id];
-        const Eigen::Matrix3d Rwi_orig = T_W_I_orig.rotation_matrix();
+        const Sophus::SE3d& T_W_I_orig = poses_before_[id];
+        const Eigen::Matrix3d Rwi_orig = T_W_I_orig.rotationMatrix();
         const Eigen::Vector3d Pwi_orig = T_W_I_orig.translation();
         Eigen::Matrix3d Rcw_orig = Rci_ * Rwi_orig.transpose();
         Eigen::Vector3d tcw_orig = -Rcw_orig * Pwi_orig + tci_;
@@ -834,8 +863,9 @@ void LvbaSystem::BuildTracksAndFuse3D() {
     // 构建邻接表
     for (int i = 0; i < N-1; ++i) {
         for (int j = i+1; j < N; ++j) {
-            size_t idx = pairIndex(i, j, N);
-            const auto& matches_ij = all_matches_[idx];
+            auto it = match_idx_map_.find(((uint64_t)i << 32) | (uint64_t)j);
+            if (it == match_idx_map_.end()) continue;
+            const auto& matches_ij = all_matches_[it->second];
             if (matches_ij.empty()) continue;
             for (const auto& m : matches_ij) {
                 int ki = m.first;
@@ -1290,10 +1320,28 @@ void LvbaSystem::optimizeCameraPoses()
     const double surf_voxel_size = dataset_io_->stage2_root_voxel_size_;
     const float surf_eigen_thr = dataset_io_->stage2_eigen_ratio_array_[0];
 
-    const auto& pl_fulls = dataset_io_->pl_fulls_;
     const auto& x_buf_full = dataset_io_->x_buf_;
-    const int total_size = static_cast<int>(std::min(pl_fulls.size(), x_buf_full.size()));
-    if (total_size == 0) {
+    const int total_size = static_cast<int>(x_buf_full.size());
+
+    // Reload point clouds from disk if they were freed for memory
+    std::vector<pcl::PointCloud<PointType>::Ptr> pl_fulls_reload;
+    const auto& pl_fulls_ref = dataset_io_->pl_fulls_;
+    const bool need_reload = pl_fulls_ref.empty() && total_size > 0;
+    if (need_reload) {
+        std::cout << "[optimizeCamPoses] Reloading " << total_size << " PCDs from disk..." << std::endl;
+        pl_fulls_reload.resize(total_size);
+        for (int i = 0; i < total_size; ++i) {
+            pl_fulls_reload[i].reset(new pcl::PointCloud<PointType>());
+            std::string pcd_path = getPcdPath(x_buf_full[i].t);
+            if (pcl::io::loadPCDFile<PointType>(pcd_path, *pl_fulls_reload[i]) < 0) {
+                std::cerr << "[optimizeCamPoses] Failed to load " << pcd_path << std::endl;
+            }
+        }
+        std::cout << "[optimizeCamPoses] Reload complete." << std::endl;
+    }
+    const auto& pl_fulls = need_reload ? pl_fulls_reload : pl_fulls_ref;
+
+    if (static_cast<int>(std::min(pl_fulls.size(), x_buf_full.size())) == 0) {
         std::cerr << "[optimizeCamPoses] empty pl_fulls/x_buf, skip." << std::endl;
         return;
     }
@@ -1406,6 +1454,13 @@ void LvbaSystem::optimizeCameraPoses()
 
     // 计算平面
     recompute_local_planes();
+
+    int plane_valid_cnt = 0;
+    for (int pi = 0; pi < Npts; ++pi) {
+        if (!plane_n[pi].isZero(1e-6)) plane_valid_cnt++;
+    }
+    std::cout << "[optimizeCamPoses] Plane valid: " << plane_valid_cnt << " / " << Npts << std::endl;
+
     for (auto& kv : surf_map) delete kv.second;
 
     ceres::Problem problem;
@@ -1416,7 +1471,7 @@ void LvbaSystem::optimizeCameraPoses()
     options.minimizer_progress_to_stdout = true;
 
     for (int k = 0; k < M; ++k) {
-        problem.AddParameterBlock(qs[k].data(), 4, new ceres::QuaternionManifold());
+        problem.AddParameterBlock(qs[k].data(), 4, new ceres::QuaternionParameterization());
         problem.AddParameterBlock(ts[k].data(), 3);
     }
     problem.SetParameterBlockConstant(qs[0].data());
@@ -1437,15 +1492,10 @@ void LvbaSystem::optimizeCameraPoses()
 
         bool has_valid_plane = (n.allFinite() && std::isfinite(d) && !n.isZero(1e-6));
         
-        if (!has_valid_plane) {
-            point_is_valid[pi] = false; 
-            continue; 
-        }
-
-        // 只有通过了上面的筛选，才标记为有效
+        // Mark point as valid even without a plane — reprojection residuals alone suffice
         point_is_valid[pi] = true;
 
-        // 添加 Point 参数块 (因为有平面，所以添加)
+        // 添加 Point 参数块
         problem.AddParameterBlock(Xs[pi].data(), 3);
 
         // 添加 视觉重投影残差
@@ -1471,12 +1521,11 @@ void LvbaSystem::optimizeCameraPoses()
                                      qs[cam_id].data(), ts[cam_id].data(), Xs[pi].data());
         }
 
-        // 添加 点-面残差
-        // double r10 = (std::abs(n(0)) < 1e-12) ? 1e12 : std::abs(n(1)/n(0));
-        // double r12 = (std::abs(n(2)) < 1e-12) ? 1e12 : std::abs(n(1)/n(2));
-        // sigma_plane = (r10>10 && r12>10) ? 0.02 : 0.05; 
-        ceres::CostFunction* plane_cost = PointPlaneErrorWhitened::Create(n, d, sigma_plane);
-        problem.AddResidualBlock(plane_cost, nullptr, Xs[pi].data());
+        // 添加 点-面残差 (only if plane is valid)
+        if (has_valid_plane) {
+            ceres::CostFunction* plane_cost = PointPlaneErrorWhitened::Create(n, d, sigma_plane);
+            problem.AddResidualBlock(plane_cost, nullptr, Xs[pi].data());
+        }
     }
 
     ceres::Solver::Summary summary;
@@ -1634,6 +1683,9 @@ void LvbaSystem::visualizeProj() {
         if (img.empty()) {
             std::cerr << "[visualizeProj] cannot read image: " << img_path << "\n";
             continue;
+        }
+        if (img.cols != image_width_ || img.rows != image_height_) {
+            cv::resize(img, img, cv::Size(image_width_, image_height_), 0, 0, cv::INTER_LINEAR);
         }
 
         double sum_pre = 0.0, sum_post = 0.0;
@@ -1817,9 +1869,26 @@ void LvbaSystem::VisualizeOptComparison(
     bool save_merged_pcd,
     const std::string& merged_pcd_path)
 {
-    const auto& pl_fulls = dataset_io_->pl_fulls_;
     const auto& x_buf_opt = dataset_io_->x_buf_;
     const auto& x_buf_bef = dataset_io_->x_buf_before_;
+
+    // Reload point clouds from disk if they were freed for memory
+    const auto& pl_fulls_ref = dataset_io_->pl_fulls_;
+    std::vector<pcl::PointCloud<PointType>::Ptr> pl_fulls_reload;
+    const bool need_reload = pl_fulls_ref.empty() && !x_buf_opt.empty();
+    if (need_reload) {
+        std::cout << "[Colorize] Reloading " << x_buf_opt.size() << " PCDs from disk..." << std::endl;
+        pl_fulls_reload.resize(x_buf_opt.size());
+        for (size_t i = 0; i < x_buf_opt.size(); ++i) {
+            pl_fulls_reload[i].reset(new pcl::PointCloud<PointType>());
+            std::string pcd_path = getPcdPath(x_buf_opt[i].t);
+            if (pcl::io::loadPCDFile<PointType>(pcd_path, *pl_fulls_reload[i]) < 0) {
+                std::cerr << "[Colorize] Failed to load " << pcd_path << std::endl;
+            }
+        }
+        std::cout << "[Colorize] Reload complete." << std::endl;
+    }
+    const auto& pl_fulls = need_reload ? pl_fulls_reload : pl_fulls_ref;
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr merged(new pcl::PointCloud<pcl::PointXYZRGB>());
     merged->reserve(3000000);
@@ -1993,23 +2062,27 @@ void LvbaSystem::VisualizeOptComparison(
     if(colmap_output_enable_)
     {
         std::cout << "[Colorize] Merged colored cloud size = " << merged->size() << "\n";
-        down_sampling_voxel2(*merged, filter_size_points3D_);
-        pcl::io::savePCDFileBinary(merged_pcd_path, *merged);
-        std::cout << "[Colorize] Downsampled size = " << merged->size() << "\n";
+        if (merged->empty()) {
+            std::cerr << "[Colorize] WARNING: No colored points generated — skipping PCD/COLMAP output.\n";
+        } else {
+            down_sampling_voxel2(*merged, filter_size_points3D_);
+            pcl::io::savePCDFileBinary(merged_pcd_path, *merged);
+            std::cout << "[Colorize] Downsampled size = " << merged->size() << "\n";
 
-        std::string sparse_dir = dataset_path_ + "Colmap/sparse/";
-        if (!fs::exists(sparse_dir)) fs::create_directories(sparse_dir);
-        fout_points_after.open(sparse_dir + "points3D.txt", std::ios::out);
-        for (size_t i = 0; i < merged->size(); ++i) 
-        {
-            const auto& point = merged->points[i];
-            fout_points_after << i << " "
-                        << std::fixed << std::setprecision(6)
-                        << point.x << " " << point.y << " " << point.z << " "
-                        << static_cast<int>(point.r) << " "
-                        << static_cast<int>(point.g) << " "
-                        << static_cast<int>(point.b) << " "
-                        << 0 << std::endl;
+            std::string sparse_dir = dataset_path_ + "Colmap/sparse/";
+            if (!fs::exists(sparse_dir)) fs::create_directories(sparse_dir);
+            fout_points_after.open(sparse_dir + "points3D.txt", std::ios::out);
+            for (size_t i = 0; i < merged->size(); ++i) 
+            {
+                const auto& point = merged->points[i];
+                fout_points_after << i << " "
+                            << std::fixed << std::setprecision(6)
+                            << point.x << " " << point.y << " " << point.z << " "
+                            << static_cast<int>(point.r) << " "
+                            << static_cast<int>(point.g) << " "
+                            << static_cast<int>(point.b) << " "
+                            << 0 << std::endl;
+            }
         }
     }
 

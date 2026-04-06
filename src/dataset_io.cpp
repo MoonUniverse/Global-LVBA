@@ -165,7 +165,7 @@ bool DatasetIO::handleImages() {
 
 bool DatasetIO::loadPosesTUM(const std::string& file,
                             size_t STRIDE,
-                            std::vector<Sophus::SE3>& poses_out) {
+                            std::vector<Sophus::SE3d>& poses_out) {
   std::ifstream fin(file);
   if (!fin.is_open()) {
     std::cerr << "[loadPosesTUM] Failed to open: " << file << "\n";
@@ -285,7 +285,7 @@ bool DatasetIO::handleBodyPoints() {
 
   for (size_t m = 0; m < lidar_poses_.size(); ++m) {
     IMUST curr;
-    curr.R = lidar_poses_[m].rotation_matrix(); curr.p = lidar_poses_[m].translation(); curr.t = pcd_ts[m];
+    curr.R = lidar_poses_[m].rotationMatrix(); curr.p = lidar_poses_[m].translation(); curr.t = pcd_ts[m];
     x_buf_.push_back(curr);
     // std::cout << "Lidar Pose " << i << ": " << lidar_poses_[i].log().transpose() << "\n";
   }
