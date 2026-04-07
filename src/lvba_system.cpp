@@ -26,6 +26,8 @@ LvbaSystem::LvbaSystem(const rclcpp::Node::SharedPtr& node) : node_(node)
 
     colmap_output_enable_ = node_->declare_parameter<bool>("colmap_output.enable", true);
     filter_size_points3D_ = node_->declare_parameter<double>("colmap_output.filter_size_points3D", 0.01);
+    colorize_time_window_sec_ = node_->declare_parameter<double>("colmap_output.colorize_time_window_sec", 0.12);
+    colorize_max_lidar_frames_ = node_->declare_parameter<int>("colmap_output.colorize_max_lidar_frames", 1);
 }
 
 void LvbaSystem::runFullPipeline() 
@@ -1436,7 +1438,7 @@ void LvbaSystem::optimizeCameraPoses()
                 plane_n[pi].setZero(); plane_d[pi] = 0.0; continue;
             }
 
-            OCTO_TREE_NODE* node = it->second->findCorrespondPoint(X);
+            OCTO_TREE_NODE* node = it->second->findCorrespondPlane(X);
             if (node == nullptr || node->octo_state != PLANE) {
                 plane_n[pi].setZero(); plane_d[pi] = 0.0; continue;
             }
@@ -1477,8 +1479,8 @@ void LvbaSystem::optimizeCameraPoses()
     problem.SetParameterBlockConstant(qs[0].data());
     problem.SetParameterBlockConstant(ts[0].data());
 
-    ceres::LossFunction* loss_function_reproj = new ceres::HuberLoss(1.0); 
-    ceres::LossFunction* loss_function_plane  = new ceres::HuberLoss(0.1); 
+    const double huber_reproj_delta = 1.0;
+    const double huber_plane_delta  = 0.1;
 
     std::vector<bool> point_is_valid(Npts, false);
 
@@ -1517,14 +1519,14 @@ void LvbaSystem::optimizeCameraPoses()
             ceres::CostFunction* cost = ReprojErrorWhitenedDistorted::Create(
                     u, v, fx_, fy_, cx_, cy_, d0_, d1_, d2_, d3_, sigma_px, sigma_px);
             
-            problem.AddResidualBlock(cost, nullptr,
+            problem.AddResidualBlock(cost, new ceres::HuberLoss(huber_reproj_delta),
                                      qs[cam_id].data(), ts[cam_id].data(), Xs[pi].data());
         }
 
         // 添加 点-面残差 (only if plane is valid)
         if (has_valid_plane) {
             ceres::CostFunction* plane_cost = PointPlaneErrorWhitened::Create(n, d, sigma_plane);
-            problem.AddResidualBlock(plane_cost, nullptr, Xs[pi].data());
+            problem.AddResidualBlock(plane_cost, new ceres::HuberLoss(huber_plane_delta), Xs[pi].data());
         }
     }
 
@@ -1900,6 +1902,11 @@ void LvbaSystem::VisualizeOptComparison(
         std::string sparse_dir = dataset_path_ + "Colmap/sparse/";
         if (!fs::exists(sparse_dir)) fs::create_directories(sparse_dir);
         fout_poses_after.open(sparse_dir + "images.txt", std::ios::out);
+        std::ofstream fout_camera(sparse_dir + "cameras.txt", std::ios::out);
+        fout_camera << "1 PINHOLE "
+                    << image_width_ << " " << image_height_ << " "
+                    << std::fixed << std::setprecision(6)
+                    << fx_ << " " << fy_ << " " << cx_ << " " << cy_ << std::endl;
         // fout_poses_before.open(dataset_path_ + "Colmap/before_sparse/images.txt", std::ios::out);
     }
     
@@ -1923,10 +1930,21 @@ void LvbaSystem::VisualizeOptComparison(
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_w_all_opt(new pcl::PointCloud<pcl::PointXYZ>());
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_w_all_orig(new pcl::PointCloud<pcl::PointXYZ>());
 
+        std::vector<std::pair<double, size_t>> lidar_candidates;
+        lidar_candidates.reserve(8);
         for (size_t idx = 0; idx < x_buf_opt.size(); ++idx) {
-            if (std::fabs(x_buf_opt[idx].t - img_id) > 0.5) {
-                continue;
-            }
+            const double dt = std::fabs(x_buf_opt[idx].t - img_id);
+            if (dt > colorize_time_window_sec_) continue;
+            lidar_candidates.emplace_back(dt, idx);
+        }
+        std::sort(lidar_candidates.begin(), lidar_candidates.end(),
+                  [](const auto& a, const auto& b) { return a.first < b.first; });
+        if ((int)lidar_candidates.size() > colorize_max_lidar_frames_) {
+            lidar_candidates.resize(colorize_max_lidar_frames_);
+        }
+
+        for (const auto& candidate : lidar_candidates) {
+            const size_t idx = candidate.second;
             if (idx >= pl_fulls.size()) continue;
             const auto& pl_body = pl_fulls[idx];
             const IMUST& pose_opt = x_buf_opt[idx];

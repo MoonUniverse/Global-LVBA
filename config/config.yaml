@@ -4,10 +4,10 @@ lv_ba:
       cam_width: 1600
       cam_height: 1296
       scale: 0.5
-      cam_fx: 733.347088
-      cam_fy: 733.652700
-      cam_cx: 768.670454
-      cam_cy: 624.177971
+      cam_fx: 733.3471069
+      cam_fy: 733.65271
+      cam_cx: 768.6704712
+      cam_cy: 624.1779785
       cam_d0: 0.0
       cam_d1: 0.0
       cam_d2: 0.0
@@ -22,7 +22,7 @@ lv_ba:
       Pcl: [0.039420, 0.015750, -0.007440]
 
     data_config:
-      data_path: "dataset/20260307_100516/"
+      data_path: "dataset/20260406_194541_opt_align20ms/"
       colmap_db_path: "no_colmap.db"
       image_sample_step: 5
       enable_lidar_ba: true
@@ -50,3 +50,5 @@ lv_ba:
     colmap_output:
       enable: true
       filter_size_points3D: 0.01
+      colorize_time_window_sec: 0.12
+      colorize_max_lidar_frames: 1

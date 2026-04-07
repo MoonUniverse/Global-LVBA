@@ -143,6 +143,8 @@ public:
     std::ofstream fout_points_after, fout_points_before, fout_poses_after, fout_poses_before;
 
     double min_view_angle_deg_, reproj_mean_thr_px_, filter_size_points3D_;
+    double colorize_time_window_sec_;
+    int colorize_max_lidar_frames_;
 
     bool colmap_output_enable_;
 };
