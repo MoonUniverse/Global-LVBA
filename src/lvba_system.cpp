@@ -1626,14 +1626,14 @@ void LvbaSystem::optimizeCameraPoses()
             ceres::CostFunction* cost = ReprojErrorWhitenedDistorted::Create(
                     u, v, fx_, fy_, cx_, cy_, d0_, d1_, d2_, d3_, sigma_px, sigma_px);
             
-            problem.AddResidualBlock(cost, new ceres::HuberLoss(huber_reproj_delta),
+            problem.AddResidualBlock(cost, nullptr,
                                      qs[cam_id].data(), ts[cam_id].data(), Xs[pi].data());
         }
 
         // 添加 点-面残差 (only if plane is valid)
         if (has_valid_plane) {
             ceres::CostFunction* plane_cost = PointPlaneErrorWhitened::Create(n, d, sigma_plane);
-            problem.AddResidualBlock(plane_cost, new ceres::HuberLoss(huber_plane_delta), Xs[pi].data());
+            problem.AddResidualBlock(plane_cost, nullptr, Xs[pi].data());
         }
     }
 
