@@ -1,29 +1,29 @@
 lv_ba:
   ros__parameters:
     cam_model:
-      cam_width: 1600
-      cam_height: 1296
-      scale: 1.0
-      cam_fx: 733.3471069
-      cam_fy: 733.65271
-      cam_cx: 768.6704712
-      cam_cy: 624.1779785
-      cam_d0: 0.0
-      cam_d1: 0.0
-      cam_d2: 0.0
-      cam_d3: 0.0
+      cam_width: 1280
+      cam_height: 1024
+      scale: 0.5
+      cam_fx: 1293.56944
+      cam_fy: 1293.3155
+      cam_cx: 626.91359
+      cam_cy: 522.799224
+      cam_d0: -0.076160
+      cam_d1: 0.123001
+      cam_d2: -0.00113
+      cam_d3: 0.000251
 
     extrin_calib:
-      extrinsic_T: [0.0, 0.0, 0.0]
+      extrinsic_T: [0.04165, 0.02326, -0.0284]
       extrinsic_R: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
-      Rcl: [-0.012330, -0.999830, -0.013650,
-            -0.001750,  0.013670, -0.999910,
-             0.999920, -0.012310, -0.001920]
-      Pcl: [0.039420, 0.015750, -0.007440]
+      Rcl: [0.00610193, -0.999863, -0.0154172,
+            -0.00615449, 0.0153796, -0.999863,
+             0.999962, 0.00619598, -0.0060598]
+      Pcl: [0.0194384, 0.104689, -0.0251952]
 
     data_config:
-      data_path: "dataset/20260406_194541_opt_align20ms_fixbody/"
-      colmap_db_path: "no_colmap.db"
+      data_path: "/home/asus/Documents/odin1_lvba/CBD_Building/CBD_Building_01/"
+      colmap_db_path: "Colmap/colmap_sub5.db"
       image_sample_step: 5
       enable_lidar_ba: true
       enable_visual_ba: true
@@ -50,5 +50,3 @@ lv_ba:
     colmap_output:
       enable: true
       filter_size_points3D: 0.01
-      colorize_time_window_sec: 0.12
-      colorize_max_lidar_frames: 1

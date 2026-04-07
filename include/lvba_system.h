@@ -80,10 +80,15 @@ public:
     std::string getPcdPath(double pcd_id);
 
     void pubRGBCloud();
+    void publishAndSaveLidarResults(
+        const std::vector<IMUST>& before_poses,
+        const std::vector<IMUST>& after_poses,
+        const std::vector<pcl::PointCloud<PointType>::Ptr>& clouds);
 
     using PointCloudPublisher = rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr;
 
     PointCloudPublisher pub_path_, pub_test_, pub_show_, pub_cute_, pub_cloud_before_, pub_cloud_after_, pub_cloud_map_;
+    PointCloudPublisher pub_path_before_, pub_path_after_;
     void data_show(vector<IMUST> x_buf, vector<pcl::PointCloud<PointType>::Ptr> &pl_fulls);
     template <typename T> void pub_pl_func(T &pl, const PointCloudPublisher &pub);
     

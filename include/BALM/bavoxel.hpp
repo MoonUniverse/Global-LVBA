@@ -327,34 +327,6 @@ public:
     return (leaves[leafnum] != nullptr) ? leaves[leafnum]->findCorrespondPoint(pw) : this;
   }
 
-  void findNearestPlaneInSubtree(const Eigen::Vector3d& pw,
-                                 OCTO_TREE_NODE*& best_node,
-                                 double& best_plane_dist,
-                                 double& best_center_dist2)
-  {
-    if (octo_state == PLANE)
-    {
-      if (direct.allFinite() && center.allFinite() && direct.norm() > 1e-6)
-      {
-        const Eigen::Vector3d n = direct.normalized();
-        const double plane_dist = std::abs(n.dot(pw - center));
-        const double center_dist2 = (pw - center).squaredNorm();
-        if (plane_dist < best_plane_dist ||
-            (std::abs(plane_dist - best_plane_dist) < 1e-9 && center_dist2 < best_center_dist2))
-        {
-          best_node = this;
-          best_plane_dist = plane_dist;
-          best_center_dist2 = center_dist2;
-        }
-      }
-      return;
-    }
-
-    for (int i = 0; i < 8; ++i)
-      if (leaves[i] != nullptr)
-        leaves[i]->findNearestPlaneInSubtree(pw, best_node, best_plane_dist, best_center_dist2);
-  }
-
   OCTO_TREE_NODE* findCorrespondPlane(const Eigen::Vector3d& pw)
   {
     if (octo_state == PLANE) return this;
@@ -366,20 +338,7 @@ public:
     xyz[2] = pw[2] > voxel_center[2] ? 1 : 0;
     const int leafnum = 4 * xyz[0] + 2 * xyz[1] + xyz[2];
 
-    if (leaves[leafnum] != nullptr)
-    {
-      OCTO_TREE_NODE* exact_node = leaves[leafnum]->findCorrespondPlane(pw);
-      if (exact_node != nullptr) return exact_node;
-    }
-
-    OCTO_TREE_NODE* best_node = nullptr;
-    double best_plane_dist = std::numeric_limits<double>::infinity();
-    double best_center_dist2 = std::numeric_limits<double>::infinity();
-    for (int i = 0; i < 8; ++i)
-      if (leaves[i] != nullptr)
-        leaves[i]->findNearestPlaneInSubtree(pw, best_node, best_plane_dist, best_center_dist2);
-
-    return best_node;
+    return (leaves[leafnum] != nullptr) ? leaves[leafnum]->findCorrespondPlane(pw) : nullptr;
   }
 
   bool judge_eigen(std::vector<IMUST>& x_buf)

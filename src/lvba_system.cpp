@@ -15,6 +15,8 @@ LvbaSystem::LvbaSystem(const rclcpp::Node::SharedPtr& node) : node_(node)
     pub_path_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("/map_path", default_qos);
     pub_show_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("/map_show", default_qos);
     pub_cute_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("/map_cute", default_qos);
+    pub_path_before_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("/lvba/path_before", latched_qos);
+    pub_path_after_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("/lvba/path_after", latched_qos);
 
     pub_cloud_before_ = node_->create_publisher<sensor_msgs::msg::PointCloud2>("viz/cloud_before", latched_qos);
     pub_cloud_after_  = node_->create_publisher<sensor_msgs::msg::PointCloud2>("viz/cloud_after", latched_qos);
@@ -320,9 +322,114 @@ void LvbaSystem::runLidarBA()
     }
 
     dataset_io_->x_buf_ = optimized_x_buf_;
+    publishAndSaveLidarResults(x_buf_full, optimized_x_buf_, pl_fulls_full);
     
     // data_show(anchor_poses, anchor_clouds);
     // data_show(dataset_io_->x_buf_, dataset_io_->pl_fulls_);  // skipped: merges all 7000 clouds, OOM
+}
+
+void LvbaSystem::publishAndSaveLidarResults(
+    const std::vector<IMUST>& before_poses,
+    const std::vector<IMUST>& after_poses,
+    const std::vector<pcl::PointCloud<PointType>::Ptr>& clouds)
+{
+    const size_t N = std::min({before_poses.size(), after_poses.size(), clouds.size()});
+    if (N == 0) {
+        RCLCPP_WARN(node_->get_logger(), "publishAndSaveLidarResults: empty inputs, skip.");
+        return;
+    }
+
+    pcl::PointCloud<PointType> merged_before, merged_after;
+    pcl::PointCloud<PointType> path_before, path_after;
+    path_before.reserve(N);
+    path_after.reserve(N);
+
+    std::cout << "[LiDAROnly] Building merged maps for " << N << " frames..." << std::endl;
+    for (size_t i = 0; i < N; ++i) {
+        if (!clouds[i]) continue;
+
+        pcl::PointCloud<PointType> cloud_ds = *clouds[i];
+        down_sampling_voxel(cloud_ds, 0.03);
+
+        pcl::PointCloud<PointType> cloud_bef = cloud_ds;
+        pcl::PointCloud<PointType> cloud_aft = cloud_ds;
+        pl_transform(cloud_bef, before_poses[i]);
+        pl_transform(cloud_aft, after_poses[i]);
+
+        merged_before += cloud_bef;
+        merged_after += cloud_aft;
+
+        PointType pt_before;
+        pt_before.x = static_cast<float>(before_poses[i].p.x());
+        pt_before.y = static_cast<float>(before_poses[i].p.y());
+        pt_before.z = static_cast<float>(before_poses[i].p.z());
+        pt_before.intensity = static_cast<float>(i);
+        path_before.push_back(pt_before);
+
+        PointType pt_after;
+        pt_after.x = static_cast<float>(after_poses[i].p.x());
+        pt_after.y = static_cast<float>(after_poses[i].p.y());
+        pt_after.z = static_cast<float>(after_poses[i].p.z());
+        pt_after.intensity = static_cast<float>(i);
+        path_after.push_back(pt_after);
+
+        if ((i + 1) % 100 == 0 || (i + 1) == N) {
+            printProgressBar(i + 1, N);
+        }
+    }
+    std::cout << std::endl;
+
+    down_sampling_voxel(merged_before, 0.05);
+    down_sampling_voxel(merged_after, 0.05);
+
+    pub_pl_func(merged_before, cloud_pub_before_);
+    pub_pl_func(merged_after, cloud_pub_after_);
+    pub_pl_func(path_before, pub_path_before_);
+    pub_pl_func(path_after, pub_path_after_);
+
+    const fs::path out_dir = fs::path(dataset_path_) / "lidar_only";
+    fs::create_directories(out_dir);
+
+    const std::string before_pcd = (out_dir / "cloud_before_lidar_ba.pcd").string();
+    const std::string after_pcd = (out_dir / "cloud_after_lidar_ba.pcd").string();
+    if (pcl::io::savePCDFileBinary(before_pcd, merged_before) == 0) {
+        std::cout << "[LiDAROnly] Saved " << before_pcd << std::endl;
+    } else {
+        std::cerr << "[LiDAROnly] Failed to save " << before_pcd << std::endl;
+    }
+    if (pcl::io::savePCDFileBinary(after_pcd, merged_after) == 0) {
+        std::cout << "[LiDAROnly] Saved " << after_pcd << std::endl;
+    } else {
+        std::cerr << "[LiDAROnly] Failed to save " << after_pcd << std::endl;
+    }
+
+    auto save_traj_tum = [](const std::string& path, const std::vector<IMUST>& poses) {
+        std::ofstream fout(path, std::ios::out);
+        if (!fout.is_open()) return false;
+        fout.setf(std::ios::fixed);
+        fout << std::setprecision(6);
+        for (const auto& pose : poses) {
+            Eigen::Quaterniond q(pose.R);
+            q.normalize();
+            fout << pose.t << " "
+                 << pose.p.x() << " " << pose.p.y() << " " << pose.p.z() << " "
+                 << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << "\n";
+        }
+        return true;
+    };
+
+    const std::string before_traj = (out_dir / "trajectory_before_lidar_ba.txt").string();
+    const std::string after_traj = (out_dir / "trajectory_after_lidar_ba.txt").string();
+    if (save_traj_tum(before_traj, before_poses)) {
+        std::cout << "[LiDAROnly] Saved " << before_traj << std::endl;
+    } else {
+        std::cerr << "[LiDAROnly] Failed to save " << before_traj << std::endl;
+    }
+    if (save_traj_tum(after_traj, after_poses)) {
+        std::cout << "[LiDAROnly] Saved " << after_traj << std::endl;
+    } else {
+        std::cerr << "[LiDAROnly] Failed to save " << after_traj << std::endl;
+    }
 }
 
 void LvbaSystem::updateCameraPosesFromLidar()

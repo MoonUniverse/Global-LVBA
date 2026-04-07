@@ -3,7 +3,7 @@ lv_ba:
     cam_model:
       cam_width: 1600
       cam_height: 1296
-      scale: 1.0
+      scale: 0.5
       cam_fx: 733.3471069
       cam_fy: 733.65271
       cam_cx: 768.6704712
@@ -26,7 +26,7 @@ lv_ba:
       colmap_db_path: "no_colmap.db"
       image_sample_step: 5
       enable_lidar_ba: true
-      enable_visual_ba: true
+      enable_visual_ba: false
 
     window_ba:
       enable: true
@@ -45,10 +45,10 @@ lv_ba:
 
     track_fusion:
       min_view_angle: 8.0
-      reproj_mean_thr: 3.0
+      reproj_mean_thr: 15.0
 
     colmap_output:
-      enable: true
+      enable: false
       filter_size_points3D: 0.01
       colorize_time_window_sec: 0.12
       colorize_max_lidar_frames: 1
